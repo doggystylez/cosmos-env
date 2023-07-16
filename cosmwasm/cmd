@@ -1,0 +1,35 @@
+#!/bin/bash
+
+# wasm compiler
+wasm-compile() {
+  [ -z "$1" ] && path=$(pwd) || path=$1
+  [ -f "$path/Cargo.toml" ] || { echo "Cargo.toml not found in $path" ; return ; }
+  contract=$(basename $path)
+  rm -rf ${path}/{target,*.wasm}
+  [ ! -z "$(lxc list wasm --format json | jq '.[] | select(.name == "wasm")')" ] && echo "starting wasm build environment" || {
+    echo "wasm container doesn't exist - creating one" ; init_wasm ; }
+  lxc start wasm 2> /dev/null
+  sleep 5
+  lxc file push -r $path wasm/root/ > /dev/null
+  lxc exec wasm --cwd /root/${contract} -- sh -c "docker run --rm -v /root/${contract}:/code --mount type=volume,source=\"${contract}_cache\",target=/target \
+     --mount type=volume,source=registry_cache,target=/usr/local/cargo/registry cosmwasm/rust-optimizer:0.13.0"
+  lxc file pull wasm/root/${contract}/artifacts/${contract}.wasm ${path}/
+  lxc exec wasm -- sh -c "rm -r /root/*"
+  lxc stop wasm
+  echo "$contract compiled at ${path}/${contract}.wasm"
+}
+
+# compile and upload to localnet
+wasm-upload() {
+  [ -z "$2" ] && { path=$(pwd) ; binary=$1 ; } || { path=$1 ; binary=$2 ; }
+  wasm-compile $path || return
+  ~/.cosmos-env/cosmwasm/upload $path $binary
+}
+
+init_wasm() {
+    lxc launch images:alpine/3.18 wasm --config security.nesting=true --config security.syscalls.intercept.mknod=true \
+      --config security.syscalls.intercept.setxattr=true
+    sleep 2
+    lxc exec wasm -- sh -c "apk add --no-cache docker && rc-update add docker"
+    lxc stop wasm
+}

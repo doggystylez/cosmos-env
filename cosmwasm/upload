@@ -1,0 +1,32 @@
+#!/bin/bash
+
+#set -eo pipefail
+
+contract=$(basename $1)
+bin=$2
+lexec() {
+  lxc exec $bin -- sh -c "$bin $1"
+}
+
+[ -z "$(lxc list $bin --format json | jq --arg b "$bin" '.[] | select(.name == $b)')" ] && { 
+  echo "$bin node not found, init with init_node <path/to/binary>" ; exit ; } || lxc start $bin 2> /dev/null
+echo "pushing $contract to $bin instance"
+lxc file push ${1}/${contract}.wasm ${bin}/root/ > /dev/null
+
+address=$(lexec "keys show test --output json" | jq -r .address)
+flags="--from $address --broadcast-mode block -ojson -y"
+
+lexec "start > /dev/null 2>&1" &
+echo "$bin started... waiting 10s for chain to start"
+sleep 10
+
+store_tx=$(lexec "tx wasm store ${contract}.wasm --from test --fees 10000000stake --gas 25000000 $flags")
+[ $(jq -r .code <<<$store_tx) == 0 ] && echo "contract uploaded" || { echo "contract upload failed" ; exit 1 ; }
+contract_code=$(jq -r '.logs | .[].events | .[-1].attributes | .[-1].value' <<<$store_tx)
+inst_tx=$(lexec "tx wasm instantiate $contract_code '{\"owner\":\"'"${address}"'\"}' --admin $address --label test --fees 2000stake $flags")
+[ $(jq -r .code <<<$inst_tx) == 0 ] || { echo "contract instantiate failed" ; exit 1 ; }
+contract_address=$(jq -r '.logs | .[].events | .[0].attributes | .[0].value' <<<$inst_tx)
+[ ! -z "$contract_address" ] && echo "contract instantiated. address: $contract_address" || echo "error finding contract address"
+
+echo -e "\n${bin} running in background. use \`killall -s TERM $bin\` to end\n\ncontract address env set: \$contract_address=${contract_address}\n"
+lxc exec $bin --env contract_address=${contract_address} -- ash
