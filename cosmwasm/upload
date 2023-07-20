@@ -1,7 +1,5 @@
 #!/bin/bash
 
-#set -eo pipefail
-
 contract=$(basename $1)
 bin=$2
 lexec() {
@@ -16,15 +14,19 @@ lxc file push ${1}/${contract}.wasm ${bin}/root/ > /dev/null
 address=$(lexec "keys show test --output json" | jq -r .address)
 flags="--from $address --broadcast-mode block -ojson -y"
 
-lexec "start > /dev/null 2>&1" &
-echo "$bin started... waiting 10s for chain to start"
-sleep 10
+[ "$(jq -r '.NodeInfo.network' <<<$status)" == "localosmosis" ]
+status=$(lexec "status 2>&1")
+chain_id=$(jq -r '.NodeInfo.network' <<<$status 2> /dev/null)
+[ -z "$chain_id" ] && { lexec "start > /dev/null 2>&1" &
+  echo "$bin started... waiting 10s for chain to start" ; sleep 10 ; } || {
+  [ $chain_id == "test-1" ] && denom="stake" ||
+  [ $chain_id == "localosmosis" ] && denom="uosmo" ; }
 
-store_tx=$(lexec "tx wasm store ${contract}.wasm --from test --fees 10000000stake --gas 25000000 $flags")
-[ $(jq -r .code <<<$store_tx) == 0 ] && echo "contract uploaded" || { echo "contract upload failed" ; exit 1 ; }
+store_tx=$(lexec "tx wasm store ${contract}.wasm --from test --fees 10000000${denom} --gas 25000000 $flags")
+[ "$(jq -r .code <<<$store_tx)" == 0 ] && echo "contract uploaded" || { echo "contract upload failed" ; exit 1 ; }
 contract_code=$(jq -r '.logs | .[].events | .[-1].attributes | .[-1].value' <<<$store_tx)
-inst_tx=$(lexec "tx wasm instantiate $contract_code '{\"owner\":\"'"${address}"'\"}' --admin $address --label test --fees 2000stake $flags")
-[ $(jq -r .code <<<$inst_tx) == 0 ] || { echo "contract instantiate failed" ; exit 1 ; }
+inst_tx=$(lexec "tx wasm instantiate $contract_code '{\"owner\":\"'"${address}"'\"}' --admin $address --label test --fees 2000${denom} $flags")
+[ "$(jq -r .code <<<$inst_tx)" == 0 ] || { echo "contract instantiate failed" ; exit 1 ; }
 contract_address=$(jq -r '.logs | .[].events | .[0].attributes | .[0].value' <<<$inst_tx)
 [ ! -z "$contract_address" ] && echo "contract instantiated. address: $contract_address" || echo "error finding contract address"
 

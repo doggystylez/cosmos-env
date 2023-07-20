@@ -21,6 +21,7 @@ wasm-compile() {
 
 # compile and upload to localnet
 wasm-upload() {
+  [ -z "$1" ] && { echo "must provide name of instance" ; return ; }
   [ -z "$2" ] && { path=$(pwd) ; binary=$1 ; } || { path=$1 ; binary=$2 ; }
   wasm-compile $path || return
   ~/.cosmos-env/cosmwasm/upload $path $binary

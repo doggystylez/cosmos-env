@@ -9,14 +9,6 @@ set -eo pipefail
 lxc launch images:alpine/3.18 $bin
 lxc file push ${path} ${bin}/usr/bin/
 
-lexec() {
-  lxc exec $bin -- sh -c "$bin $1"
-}
-
-lexec "init test --chain-id test-1 &> /dev/null"
-lexec "config keyring-backend test"
-lexec "config chain-id test-1"
-lexec "keys add test 2> seed.txt"
-lexec "add-genesis-account test 1000000000000stake,1000000000000uosmo,1000000000000uatom,1000000000000ujuno --keyring-backend test"
-lexec "gentx test 100000000stake --keyring-backend test --chain-id test-1"
-lexec "collect-gentxs &> /dev/null"
+lxc exec $bin -- sh -c "$bin init test --chain-id test-1 &> /dev/null && $bin config keyring-backend test && $bin config chain-id test-1 &&
+  $bin keys add test 2> seed.txt && add-genesis-account test 1000000000000stake,1000000000000uosmo,1000000000000uatom,1000000000000ujuno --keyring-backend test &&
+  $bin gentx test 100000000stake --keyring-backend test --chain-id test-1 && $bin collect-gentxs &> /dev/null"

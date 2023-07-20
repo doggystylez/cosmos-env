@@ -2,59 +2,9 @@
 
 # compile static-linked binary
 go-compile() {
-  [ -z "$1" ] && path=$(pwd) || path=$1
-  [ -z "$2" ] && bin=$(basename $path) || bin=$2
-  [ ! -d "${path}/cmd/${bin}" ] && { echo "$bin not found at $path" ; return ; }
-  module=$(basename $path)
-  rm -rf ${path}/${bin}
-  [ ! -z "$(lxc list musl --format json | jq '.[] | select(.name == "musl")')" ] && echo "starting go build environment" || {
-    echo "musl container doesn't exist - creating one" ; init_musl ; }
-  lxc start musl 2> /dev/null
-  [ ! -z "$3" ] && { git --git-dir=${path}/.git --work-tree=${path} checkout -q $3 && echo "building from commit/tag $3" || {
-    echo "failed to checkout commit/tag $3" ; return ; } ; }
-  lxc file push -r $path musl/root/ > /dev/null
-  go_mod="$(lxc exec musl --cwd /root/${module} -- sh -c "go mod edit -json")"
-  go_version="go$(jq -r .Go <<<$go_mod)"
-  wasmvm "$go_mod"
-  [ "$go_version" == "$(lxc exec musl -- sh -c "go version | awk '{print \$3}' | cut -d '.' -f 1,2")" ] && go_bin="/usr/bin/go" || {
-    go_env="--env GOROOT=/root/.gvm/${go_version}/go" && go_bin="/root/.gvm/${go_version}/go/bin/go"
-    [ -z "$(lxc exec musl -- sh -c "ls /root/.gvm/${go_version} 2> /dev/null")" ] && gvm $go_version ; }
-  lxc exec musl $go_env --cwd /root/${module} -- sh -c "$go_bin build -tags muslc -ldflags \"-w -s -linkmode=external -extldflags '-Wl,-z,muldefs -static'\" \
-    -buildvcs=false -trimpath ./cmd/${bin}"
-  lxc file pull musl/root/${module}/${bin} ${path}/
-  lxc exec musl -- sh -c "rm -r /root/*"
-  lxc stop musl
-  [ -f "${path}/${bin}" ] && echo "$bin compiled at ${path}/${bin}" || echo "compile failed"
-}
-
-init_musl() {
-    lxc launch images:alpine/3.18 musl
-    sleep 2
-    lxc exec musl -- sh -c "apk add --no-cache go gcc curl"
-    lxc stop musl
-}
-
-# install go versions
-gvm() {
-  [ ! -z "$1" ] &&  echo "installing ${1}" || { echo "usage gvm <version>" ; return ;}
-  lxc exec musl -- sh -c "mkdir -p /root/.gvm/${1} && apk add --no-cache --virtual .go-deps openssl bash > /dev/null &&
-    curl -sL https://dl.google.com/go/${1}.src.tar.gz | tar -xzf - -C /root/.gvm/${1}"
-  lxc exec musl --cwd /root/.gvm/${1}/go/src -- sh -c "./make.bash > /dev/null && apk del .go-deps > /dev/null"
-}
-
-wasmvm() {
-  [ "$(jq -c '.Require' <<<$go_mod)" != "null" ] && for dep in $(jq -c '.Require | .[]' <<<$1) ; do
-    [ "$(jq -r '.Path' <<<$dep)" == "github.com/CosmWasm/wasmvm" ] && { wasm=$(jq -r '.Version' <<<$dep) ; break ; }
-  done
-  [ "$(jq -c '.Replace' <<<$go_mod)" != "null" ] && for dep in $(jq -c '.Replace | .[]' <<<$1) ; do
-    [ "$(jq -r '.New.Path' <<<$dep)" == "github.com/CosmWasm/wasmvm" ] && { wasm=$(jq -r '.New.Version' <<<$dep) ; break ; }
-  done
-  [ ! -z "$wasm" ] && { lxc exec musl -- sh -c "rm -f /lib/libwasmvm_muslc.a
-      curl -sL https://github.com/CosmWasm/wasmvm/releases/download/${wasm}/libwasmvm_muslc.\$(uname -m).a -o /lib/libwasmvm_muslc.a
-      [ -z \"\$(curl -sL https://github.com/CosmWasm/wasmvm/releases/download/${wasm}/checksums.txt | grep \$(sha256sum /lib/libwasmvm_muslc.a | awk '{printf \$1}'))\" ] &&
-        echo \"WARN wasmvm checksum not verified\"" ; }
+  python3 ~/.cosmos-env/cosmos-go/compile.py $@
 }
 
 init_node() {
-    ~/.cosmos-env/cosmos-go/init_node $1
+  ~/.cosmos-env/cosmos-go/init_node $1
 }

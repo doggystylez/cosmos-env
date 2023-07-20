@@ -1,4 +1,4 @@
 #!/bin/bash
 
-. ./.cosmos-env/cosmos-go/cmd
-. ./.cosmos-env/cosmwasm/cmd
+. ~/.cosmos-env/cosmos-go/cmd
+. ~/.cosmos-env/cosmwasm/cmd
